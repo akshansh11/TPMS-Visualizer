@@ -296,7 +296,7 @@ def create_graded_tpms(tpms_type, grading_function, resolution=64,
 def main():
     st.set_page_config(page_title="Advanced TPMS Features", layout="wide", page_icon="🏗️")
     
-    st.title("🏗️ Advanced TPMS Features")
+    st.title("Advanced TPMS Features")
     st.markdown("*Sheet-Based Surfaces • Hybrid Structures • Graded Properties*")
     
     # Sidebar for feature selection
