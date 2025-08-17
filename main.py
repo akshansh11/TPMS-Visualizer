@@ -301,7 +301,7 @@ def main():
     
     # Sidebar for feature selection
     with st.sidebar:
-        st.header("🎯 Feature Selection")
+        st.header("Feature Selection")
         
         feature_type = st.selectbox(
             "Select Feature Type",
@@ -309,7 +309,7 @@ def main():
             help="Choose which advanced feature to explore"
         )
         
-        st.header("⚙️ Parameters")
+        st.header("Parameters")
         
         # Common parameters
         resolution = st.slider("Resolution", 32, 128, 64, step=8, 
@@ -346,7 +346,7 @@ def main():
             )
             
         else:  # Graded Structures
-            st.subheader("🔧 Grading Parameters")
+            st.subheader("Grading Parameters")
             tpms_type = st.selectbox(
                 "TPMS Type",
                 ["Gyroid", "Schwarz P", "Schwarz D", "Neovius"]
@@ -415,7 +415,7 @@ def main():
             st.info("Configure parameters and click 'Generate Structure' to create advanced TPMS features")
     
     with col2:
-        st.subheader("📊 Structure Analysis")
+        st.subheader("Structure Analysis")
         
         if 'vertices' in st.session_state:
             vertices = st.session_state['vertices']
