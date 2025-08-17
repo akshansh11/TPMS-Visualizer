@@ -4,4 +4,5 @@ scipy           # Scientific computing, optimization
 matplotlib      # Basic plotting
 plotly          # Interactive 3D visualization
 streamlit       # Web interface (optional)
+skimage
 
