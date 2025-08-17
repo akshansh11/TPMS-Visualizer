@@ -2,401 +2,477 @@ import streamlit as st
 import numpy as np
 import plotly.graph_objects as go
 from scipy.spatial.distance import cdist
+from skimage import measure
+import plotly.figure_factory as ff
 
-def gyroid_surface(x, y, z, t=0.5):
+# TPMS Mathematical Functions
+def gyroid_surface(x, y, z, t=0.0):
     """Gyroid TPMS equation"""
     return np.sin(x)*np.cos(y) + np.sin(y)*np.cos(z) + np.sin(z)*np.cos(x) - t
 
-def schwarz_p_surface(x, y, z, t=0.5):
+def schwarz_p_surface(x, y, z, t=0.0):
     """Schwarz P TPMS equation"""
     return np.cos(x) + np.cos(y) + np.cos(z) - t
 
-def schwarz_d_surface(x, y, z, t=0.5):
+def schwarz_d_surface(x, y, z, t=0.0):
     """Schwarz D (Diamond) TPMS equation"""
     return (np.sin(x)*np.sin(y)*np.sin(z) + 
             np.sin(x)*np.cos(y)*np.cos(z) + 
             np.cos(x)*np.sin(y)*np.cos(z) + 
             np.cos(x)*np.cos(y)*np.sin(z)) - t
 
-def neovius_surface(x, y, z, t=0.5):
+def neovius_surface(x, y, z, t=0.0):
     """Neovius TPMS equation"""
     return (3*(np.cos(x) + np.cos(y) + np.cos(z)) + 
             4*np.cos(x)*np.cos(y)*np.cos(z)) - t
 
-def fischer_koch_surface(x, y, z, t=0.5):
-    """Fischer-Koch TPMS equation"""
+def primitive_surface(x, y, z, t=0.0):
+    """Primitive (Schwarz P) surface"""
+    return np.cos(x) + np.cos(y) + np.cos(z) - t
+
+def fischer_koch_surface(x, y, z, t=0.0):
+    """Fischer-Koch surface"""
     return (np.cos(2*x)*np.sin(y)*np.cos(z) + 
             np.cos(x)*np.cos(2*y)*np.sin(z) + 
             np.sin(x)*np.cos(y)*np.cos(2*z)) - t
 
-def lidinoid_surface(x, y, z, t=0.5):
-    """Lidinoid TPMS equation"""
-    return (np.sin(2*x)*np.cos(y)*np.sin(z) + 
-            np.sin(x)*np.sin(2*y)*np.cos(z) + 
-            np.cos(x)*np.sin(y)*np.sin(2*z) - 
-            (np.cos(2*x)*np.cos(2*y) + 
-             np.cos(2*y)*np.cos(2*z) + 
-             np.cos(2*z)*np.cos(2*x))/2) - t
+# =============================================================================
+# FEATURE 1: SHEET-BASED TPMS (Actual Surfaces using Marching Cubes)
+# =============================================================================
 
-def create_tpms_skeletal_structure(tpms_type, grid_size=32, domain_size=2*np.pi, 
-                                 thickness_param=0.0, connection_threshold=0.5):
-    """
-    Create skeletal structure from TPMS by finding critical points and connections
-    """
-    # TPMS function mapping
+def create_sheet_based_tpms(tpms_type, resolution=64, domain_size=2*np.pi, thickness=0.0):
+    """Create actual triangulated surfaces using marching cubes algorithm"""
+    
     tpms_functions = {
         'Gyroid': gyroid_surface,
         'Schwarz P': schwarz_p_surface,
         'Schwarz D': schwarz_d_surface,
         'Neovius': neovius_surface,
-        'Fischer-Koch': fischer_koch_surface,
-        'Lidinoid': lidinoid_surface
+        'Primitive': primitive_surface,
+        'Fischer-Koch': fischer_koch_surface
     }
     
     tpms_func = tpms_functions[tpms_type]
     
     # Create 3D grid
-    x = np.linspace(0, domain_size, grid_size)
-    y = np.linspace(0, domain_size, grid_size)
-    z = np.linspace(0, domain_size, grid_size)
-    X, Y, Z = np.meshgrid(x, y, z)
+    x = np.linspace(0, domain_size, resolution)
+    y = np.linspace(0, domain_size, resolution)
+    z = np.linspace(0, domain_size, resolution)
+    X, Y, Z = np.meshgrid(x, y, z, indexing='ij')
     
-    # Evaluate TPMS function
-    surface_values = tpms_func(X, Y, Z, thickness_param)
+    # Evaluate TPMS function on the grid
+    values = tpms_func(X, Y, Z, thickness)
     
-    # Find points near the surface (skeletal approximation)
-    surface_mask = np.abs(surface_values) < connection_threshold
-    
-    # Extract coordinates of surface points
-    surface_indices = np.where(surface_mask)
-    vertices = np.column_stack([X[surface_indices], 
-                               Y[surface_indices], 
-                               Z[surface_indices]])
-    
-    # Create connections between nearby vertices to form skeleton
-    edges = create_skeleton_connections(vertices, max_connection_distance=0.5)
-    
-    return vertices, edges
-
-def create_skeleton_connections(vertices, max_connection_distance=0.5):
-    """Create edges between nearby vertices to form a skeletal structure"""
-    edges = []
-    n_vertices = len(vertices)
-    
-    # For performance, limit to smaller subsets for large vertex counts
-    if n_vertices > 1000:
-        # Sample vertices for connections to avoid memory issues
-        sample_indices = np.random.choice(n_vertices, min(1000, n_vertices), replace=False)
-        sample_vertices = vertices[sample_indices]
-        
-        # Calculate distances between sampled vertices
-        distances = cdist(sample_vertices, sample_vertices)
-        
-        # Create connections for nearby points
-        for i in range(len(sample_vertices)):
-            for j in range(i+1, len(sample_vertices)):
-                if distances[i, j] < max_connection_distance:
-                    edges.append([sample_indices[i], sample_indices[j]])
-    else:
-        # Full connection calculation for smaller vertex sets
-        distances = cdist(vertices, vertices)
-        
-        for i in range(n_vertices):
-            for j in range(i+1, n_vertices):
-                if distances[i, j] < max_connection_distance:
-                    edges.append([i, j])
-    
-    return edges
-
-def create_tpms_beam_approximation(tpms_type, unit_cells=2, beams_per_cell=20):
-    """
-    Alternative approach: Create beam-based approximation of TPMS
-    by sampling the surface and creating beam connections
-    """
-    tpms_functions = {
-        'Gyroid': gyroid_surface,
-        'Schwarz P': schwarz_p_surface,
-        'Schwarz D': schwarz_d_surface,
-        'Neovius': neovius_surface,
-        'Fischer-Koch': fischer_koch_surface,
-        'Lidinoid': lidinoid_surface
-    }
-    
-    tpms_func = tpms_functions[tpms_type]
-    
-    vertices = []
-    edges = []
-    vertex_count = 0
-    
-    # Create unit cells
-    cell_size = 2 * np.pi
-    
-    for x in range(unit_cells):
-        for y in range(unit_cells):
-            for z in range(unit_cells):
-                # Sample points within each unit cell
-                cell_vertices = sample_tpms_surface(
-                    tpms_func, 
-                    offset=[x * cell_size, y * cell_size, z * cell_size],
-                    cell_size=cell_size,
-                    n_samples=beams_per_cell
-                )
-                
-                # Translate vertices
-                translated_vertices = cell_vertices + np.array([x, y, z]) * cell_size
-                vertices.extend(translated_vertices)
-                
-                # Create connections within the cell
-                cell_edges = create_cell_connections(len(cell_vertices), vertex_count)
-                edges.extend(cell_edges)
-                
-                vertex_count += len(cell_vertices)
-    
-    return np.array(vertices), edges
-
-def sample_tpms_surface(tpms_func, offset=[0, 0, 0], cell_size=2*np.pi, n_samples=20):
-    """Sample points on TPMS surface within a unit cell"""
-    vertices = []
-    
-    # Use marching cubes approach simplified - sample grid and find surface points
-    grid_res = int(n_samples**(1/3)) + 2
-    x = np.linspace(offset[0], offset[0] + cell_size, grid_res)
-    y = np.linspace(offset[1], offset[1] + cell_size, grid_res)
-    z = np.linspace(offset[2], offset[2] + cell_size, grid_res)
-    
-    for i in range(len(x)-1):
-        for j in range(len(y)-1):
-            for k in range(len(z)-1):
-                # Check if surface crosses this cube
-                cube_corners = [
-                    [x[i], y[j], z[k]], [x[i+1], y[j], z[k]],
-                    [x[i], y[j+1], z[k]], [x[i+1], y[j+1], z[k]],
-                    [x[i], y[j], z[k+1]], [x[i+1], y[j], z[k+1]],
-                    [x[i], y[j+1], z[k+1]], [x[i+1], y[j+1], z[k+1]]
-                ]
-                
-                values = [tpms_func(c[0], c[1], c[2]) for c in cube_corners]
-                
-                # If surface crosses this cube (sign change), add center point
-                if min(values) <= 0 <= max(values):
-                    center = [(x[i] + x[i+1])/2, (y[j] + y[j+1])/2, (z[k] + z[k+1])/2]
-                    vertices.append(center)
-                    
-                    if len(vertices) >= n_samples:
-                        break
-            if len(vertices) >= n_samples:
-                break
-        if len(vertices) >= n_samples:
-            break
-    
-    return np.array(vertices[:n_samples]) if vertices else np.array([[0, 0, 0]])
-
-def create_cell_connections(n_vertices, vertex_offset):
-    """Create connections between vertices in a cell"""
-    edges = []
-    
-    # Connect each vertex to a few nearest neighbors
-    for i in range(n_vertices):
-        for j in range(i+1, min(i+4, n_vertices)):  # Connect to next 3 vertices
-            edges.append([i + vertex_offset, j + vertex_offset])
-    
-    return edges
-
-def plot_tpms_lattice(vertices, edges, strut_thickness, colorscale='Viridis'):
-    """Create interactive 3D plot for TPMS lattice"""
-    if len(vertices) == 0 or len(edges) == 0:
-        # Create empty plot
-        fig = go.Figure()
-        fig.add_annotation(
-            text="No structure generated. Try adjusting parameters.",
-            xref="paper", yref="paper",
-            x=0.5, y=0.5, showarrow=False
+    # Extract surface using marching cubes
+    try:
+        vertices, faces, normals, _ = measure.marching_cubes(
+            values, 
+            level=0.0,  # Extract zero-level surface
+            spacing=(domain_size/resolution, domain_size/resolution, domain_size/resolution)
         )
-        return fig
+        
+        # Compute face centers for coloring
+        face_centers = vertices[faces].mean(axis=1)
+        colors = np.sqrt(face_centers[:, 0]**2 + face_centers[:, 1]**2 + face_centers[:, 2]**2)
+        
+        return vertices, faces, normals, colors
+        
+    except Exception as e:
+        st.error(f"Error in marching cubes: {e}")
+        return None, None, None, None
+
+def plot_sheet_surface(vertices, faces, colors, surface_name="TPMS Surface"):
+    """Plot triangulated surface mesh"""
+    if vertices is None or faces is None:
+        return None
     
-    x_lines = []
-    y_lines = []
-    z_lines = []
-    
-    for edge in edges:
-        if edge[0] < len(vertices) and edge[1] < len(vertices):
-            start, end = edge
-            x_lines.extend([vertices[start, 0], vertices[end, 0], None])
-            y_lines.extend([vertices[start, 1], vertices[end, 1], None])
-            z_lines.extend([vertices[start, 2], vertices[end, 2], None])
-    
-    # Create colors based on position
-    colors = np.zeros(len(x_lines))
-    idx = 0
-    for edge in edges:
-        if edge[0] < len(vertices) and edge[1] < len(vertices):
-            start, end = edge
-            pos = vertices[start] + vertices[end]
-            colors[idx:idx+3] = np.sum(pos) % 10
-            idx += 3
-    
-    fig = go.Figure(data=[go.Scatter3d(
-        x=x_lines,
-        y=y_lines,
-        z=z_lines,
-        mode='lines',
-        line=dict(
-            color=colors,
-            width=strut_thickness,
-            colorscale=colorscale
-        )
-    )])
-    
-    # Add vertex points
-    if len(vertices) < 500:  # Only show vertices for smaller structures
-        fig.add_trace(go.Scatter3d(
+    # Create mesh3d plot
+    fig = go.Figure(data=[
+        go.Mesh3d(
             x=vertices[:, 0],
-            y=vertices[:, 1],
+            y=vertices[:, 1], 
             z=vertices[:, 2],
-            mode='markers',
-            marker=dict(size=3, color='red'),
-            name='Nodes'
-        ))
+            i=faces[:, 0],
+            j=faces[:, 1],
+            k=faces[:, 2],
+            intensity=colors,
+            colorscale='Viridis',
+            opacity=0.7,
+            name=surface_name,
+            showscale=True
+        )
+    ])
     
     fig.update_layout(
         scene=dict(
             aspectmode='cube',
             xaxis_title='X',
-            yaxis_title='Y',
-            zaxis_title='Z'
+            yaxis_title='Y', 
+            zaxis_title='Z',
+            camera=dict(eye=dict(x=1.5, y=1.5, z=1.5))
         ),
-        showlegend=False,
-        margin=dict(l=0, r=0, t=0, b=0)
+        title=f'{surface_name} - Sheet-Based Visualization',
+        margin=dict(l=0, r=0, t=40, b=0),
+        height=700
     )
     
     return fig
 
-# Streamlit app
-st.set_page_config(layout="wide", page_title="TPMS Lattice Structure Visualizer")
-st.title("TPMS-Based Lattice Structure Generator")
+# =============================================================================
+# FEATURE 2: HYBRID STRUCTURES (Combine Multiple TPMS Types)
+# =============================================================================
 
-# Create two columns
-col1, col2 = st.columns([1, 3])
-
-# Control panel
-with col1:
-    st.header("TPMS Settings")
+def create_hybrid_tpms(tpms1_type, tpms2_type, blend_function, resolution=64, 
+                      domain_size=2*np.pi, thickness1=0.0, thickness2=0.0):
+    """Create hybrid structure by combining two TPMS types"""
     
-    with st.expander("TPMS Type", expanded=True):
-        tpms_type = st.selectbox(
-            "Select TPMS Surface",
-            ["Gyroid", "Schwarz P", "Schwarz D", "Neovius", "Fischer-Koch", "Lidinoid"]
-        )
-        
-        st.write("""
-        **TPMS Types:**
-        - **Gyroid**: Smooth, interconnected channels
-        - **Schwarz P**: Cubic symmetry, simple
-        - **Schwarz D**: Diamond-like structure
-        - **Neovius**: Complex cubic symmetry
-        - **Fischer-Koch**: Twisted channels
-        - **Lidinoid**: Complex interconnected structure
-        """)
+    tpms_functions = {
+        'Gyroid': gyroid_surface,
+        'Schwarz P': schwarz_p_surface,
+        'Schwarz D': schwarz_d_surface,
+        'Neovius': neovius_surface,
+        'Primitive': primitive_surface,
+        'Fischer-Koch': fischer_koch_surface
+    }
     
-    with st.expander("Structure Parameters", expanded=True):
-        method = st.radio(
-            "Generation Method",
-            ["Beam Approximation", "Skeletal Structure"]
-        )
-        
-        unit_cells = st.selectbox(
-            "Unit Cells",
-            [1, 2, 3],
-            format_func=lambda x: f"{x}x{x}x{x}"
-        )
-        
-        if method == "Beam Approximation":
-            beams_per_cell = st.slider(
-                "Beams per Cell",
-                min_value=8,
-                max_value=50,
-                value=20
-            )
-        else:
-            thickness_param = st.slider(
-                "Thickness Parameter",
-                min_value=-1.0,
-                max_value=1.0,
-                value=0.0,
-                step=0.1
-            )
-            
-            connection_threshold = st.slider(
-                "Connection Threshold",
-                min_value=0.1,
-                max_value=2.0,
-                value=0.5,
-                step=0.1
-            )
+    tpms1_func = tpms_functions[tpms1_type]
+    tpms2_func = tpms_functions[tpms2_type]
     
-    with st.expander("Visualization", expanded=True):
-        strut_thickness = st.slider(
-            "Strut Thickness",
-            min_value=1,
-            max_value=10,
-            value=3
-        )
-        
-        colorscale = st.selectbox(
-            "Color Scheme",
-            ['Viridis', 'Plasma', 'Inferno', 'Magma', 'Rainbow']
-        )
-
-# Generate structure based on method
-with col2:
+    # Create 3D grid
+    x = np.linspace(0, domain_size, resolution)
+    y = np.linspace(0, domain_size, resolution)
+    z = np.linspace(0, domain_size, resolution)
+    X, Y, Z = np.meshgrid(x, y, z, indexing='ij')
+    
+    # Evaluate both TPMS functions
+    values1 = tpms1_func(X, Y, Z, thickness1)
+    values2 = tpms2_func(X, Y, Z, thickness2)
+    
+    # Combine based on blend function
+    if blend_function == "Union (OR)":
+        # Union: min of both surfaces
+        combined_values = np.minimum(np.abs(values1), np.abs(values2)) * np.sign(values1)
+    elif blend_function == "Intersection (AND)":
+        # Intersection: max of both surfaces  
+        combined_values = np.maximum(np.abs(values1), np.abs(values2)) * np.sign(values1)
+    elif blend_function == "Weighted Average":
+        # Weighted combination
+        weight = 0.5
+        combined_values = weight * values1 + (1 - weight) * values2
+    elif blend_function == "Spatial Transition":
+        # Smooth spatial transition between the two
+        transition = np.sin(X) * np.cos(Y)  # Spatial modulation
+        weight = (transition + 1) / 2  # Normalize to [0,1]
+        combined_values = weight * values1 + (1 - weight) * values2
+    elif blend_function == "XOR (Exclusive)":
+        # XOR operation - where only one surface exists
+        mask1 = np.abs(values1) < 0.1
+        mask2 = np.abs(values2) < 0.1
+        xor_mask = mask1 ^ mask2  # XOR operation
+        combined_values = np.where(xor_mask, 
+                                 np.minimum(np.abs(values1), np.abs(values2)), 
+                                 np.maximum(np.abs(values1), np.abs(values2)))
+    
+    # Extract surface using marching cubes
     try:
-        if method == "Beam Approximation":
-            vertices, edges = create_tpms_beam_approximation(
-                tpms_type, unit_cells, beams_per_cell
-            )
-        else:
-            vertices, edges = create_tpms_skeletal_structure(
-                tpms_type, 
-                grid_size=20 + unit_cells*10,
-                domain_size=unit_cells * 2 * np.pi,
-                thickness_param=thickness_param,
-                connection_threshold=connection_threshold
-            )
+        vertices, faces, normals, _ = measure.marching_cubes(
+            combined_values,
+            level=0.0,
+            spacing=(domain_size/resolution, domain_size/resolution, domain_size/resolution)
+        )
         
-        # Display structure info
-        st.write(f"**Structure Info:** {len(vertices)} nodes, {len(edges)} beams")
+        # Color by blend ratio for visualization
+        face_centers = vertices[faces].mean(axis=1)
+        val1_at_faces = np.array([
+            tpms1_func(fc[0], fc[1], fc[2], thickness1) for fc in face_centers
+        ])
+        val2_at_faces = np.array([
+            tpms2_func(fc[0], fc[1], fc[2], thickness2) for fc in face_centers  
+        ])
         
-        # Plot the structure
-        fig = plot_tpms_lattice(vertices, edges, strut_thickness, colorscale)
-        st.plotly_chart(fig, use_container_width=True)
+        # Color represents which TPMS dominates
+        colors = np.abs(val1_at_faces) / (np.abs(val1_at_faces) + np.abs(val2_at_faces) + 1e-10)
+        
+        return vertices, faces, colors, f"{tpms1_type} + {tpms2_type}"
         
     except Exception as e:
-        st.error(f"Error generating structure: {str(e)}")
-        st.write("Try adjusting the parameters or selecting a different method.")
+        st.error(f"Error creating hybrid structure: {e}")
+        return None, None, None, None
 
-    with st.expander("TPMS Theory & Applications", expanded=False):
-        st.markdown("""
-        ### Triply Periodic Minimal Surfaces (TPMS)
-        
-        TPMS are mathematical surfaces that:
-        - Repeat infinitely in all three spatial directions
-        - Have zero mean curvature (minimal surfaces)
-        - Divide space into two interwoven regions
-        
-        ### Applications:
-        - **Lightweight structures**: High strength-to-weight ratio
-        - **Heat exchangers**: Large surface area for heat transfer
-        - **Fluid mixing**: Complex flow patterns
-        - **Biomimetic structures**: Similar to natural foams and bones
-        - **Metamaterials**: Unique mechanical properties
-        
-        ### Implementation Notes:
-        - **Beam Approximation**: Faster, creates beam-like structures
-        - **Skeletal Structure**: More accurate to TPMS geometry
-        - Adjust thickness/threshold parameters to control density
-        - Higher unit cell counts create more complex patterns
-        """)
+# =============================================================================  
+# FEATURE 3: GRADED STRUCTURES (Spatially Varying Thickness/Density)
+# =============================================================================
 
-# Footer
-st.markdown("---")
-st.markdown("TPMS-based lattice structures for advanced engineering applications")
+def create_graded_tpms(tpms_type, grading_function, resolution=64, 
+                      domain_size=2*np.pi, base_thickness=0.0, grading_intensity=1.0):
+    """Create graded TPMS with spatially varying thickness/density"""
+    
+    tpms_functions = {
+        'Gyroid': gyroid_surface,
+        'Schwarz P': schwarz_p_surface,
+        'Schwarz D': schwarz_d_surface,
+        'Neovius': neovius_surface,
+        'Primitive': primitive_surface,
+        'Fischer-Koch': fischer_koch_surface
+    }
+    
+    tpms_func = tpms_functions[tpms_type]
+    
+    # Create 3D grid
+    x = np.linspace(0, domain_size, resolution)
+    y = np.linspace(0, domain_size, resolution) 
+    z = np.linspace(0, domain_size, resolution)
+    X, Y, Z = np.meshgrid(x, y, z, indexing='ij')
+    
+    # Create grading function
+    center_x, center_y, center_z = domain_size/2, domain_size/2, domain_size/2
+    
+    if grading_function == "Radial (Center to Edge)":
+        # Distance from center
+        distance = np.sqrt((X - center_x)**2 + (Y - center_y)**2 + (Z - center_z)**2)
+        max_distance = np.sqrt(3) * domain_size/2
+        grading = distance / max_distance
+    elif grading_function == "Linear X":
+        # Linear gradient along X
+        grading = X / domain_size
+    elif grading_function == "Linear Y":
+        # Linear gradient along Y
+        grading = Y / domain_size
+    elif grading_function == "Linear Z":
+        # Linear gradient along Z
+        grading = Z / domain_size
+    elif grading_function == "Sinusoidal X":
+        # Sinusoidal variation along X
+        grading = (np.sin(2 * np.pi * X / domain_size) + 1) / 2
+    elif grading_function == "Spherical Shells":
+        # Concentric spherical shells
+        distance = np.sqrt((X - center_x)**2 + (Y - center_y)**2 + (Z - center_z)**2)
+        grading = np.abs(np.sin(4 * np.pi * distance / domain_size))
+    elif grading_function == "Cubic Shells":
+        # Cubic shells from center
+        distance = np.maximum(np.maximum(np.abs(X - center_x), np.abs(Y - center_y)), 
+                            np.abs(Z - center_z))
+        max_distance = domain_size/2
+        grading = distance / max_distance
+    
+    # Apply grading to thickness
+    graded_thickness = base_thickness + grading_intensity * grading
+    
+    # Evaluate TPMS with graded thickness
+    values = tpms_func(X, Y, Z, graded_thickness)
+    
+    # Extract surface using marching cubes
+    try:
+        vertices, faces, normals, _ = measure.marching_cubes(
+            values,
+            level=0.0,
+            spacing=(domain_size/resolution, domain_size/resolution, domain_size/resolution)
+        )
+        
+        # Color by grading value for visualization
+        face_centers = vertices[faces].mean(axis=1)
+        
+        # Interpolate grading values at face centers
+        if grading_function == "Radial (Center to Edge)":
+            face_distances = np.sqrt((face_centers[:, 0] - center_x)**2 + 
+                                   (face_centers[:, 1] - center_y)**2 + 
+                                   (face_centers[:, 2] - center_z)**2)
+            max_distance = np.sqrt(3) * domain_size/2
+            colors = face_distances / max_distance
+        else:
+            # For other grading functions, use a simpler coloring
+            colors = face_centers[:, 0] / domain_size  # X-position based coloring
+        
+        return vertices, faces, colors, grading_function
+        
+    except Exception as e:
+        st.error(f"Error creating graded structure: {e}")
+        return None, None, None, None
+
+# =============================================================================
+# STREAMLIT APPLICATION
+# =============================================================================
+
+def main():
+    st.set_page_config(page_title="Advanced TPMS Features", layout="wide", page_icon="🏗️")
+    
+    st.title("🏗️ Advanced TPMS Features")
+    st.markdown("*Sheet-Based Surfaces • Hybrid Structures • Graded Properties*")
+    
+    # Sidebar for feature selection
+    with st.sidebar:
+        st.header("🎯 Feature Selection")
+        
+        feature_type = st.selectbox(
+            "Select Feature Type",
+            ["Sheet-Based TPMS", "Hybrid Structures", "Graded Structures"],
+            help="Choose which advanced feature to explore"
+        )
+        
+        st.header("⚙️ Parameters")
+        
+        # Common parameters
+        resolution = st.slider("Resolution", 32, 128, 64, step=8, 
+                             help="Higher resolution = more detail, slower computation")
+        domain_periods = st.selectbox("Domain Periods", [1, 2, 3], index=1)
+        domain_size = domain_periods * 2 * np.pi
+        
+        # Feature-specific parameters
+        if feature_type == "Sheet-Based TPMS":
+            st.subheader("🔧 Surface Parameters")
+            tpms_type = st.selectbox(
+                "TPMS Type", 
+                ["Gyroid", "Schwarz P", "Schwarz D", "Neovius", "Primitive", "Fischer-Koch"]
+            )
+            thickness = st.slider("Thickness", -1.0, 1.0, 0.0, 0.1)
+            
+        elif feature_type == "Hybrid Structures":
+            st.subheader("🔧 Hybrid Parameters")
+            col1, col2 = st.columns(2)
+            with col1:
+                tpms1_type = st.selectbox("First TPMS", 
+                    ["Gyroid", "Schwarz P", "Schwarz D", "Neovius"])
+                thickness1 = st.slider("Thickness 1", -1.0, 1.0, 0.0, 0.1)
+            with col2:
+                tpms2_type = st.selectbox("Second TPMS", 
+                    ["Schwarz P", "Gyroid", "Schwarz D", "Neovius"])
+                thickness2 = st.slider("Thickness 2", -1.0, 1.0, 0.0, 0.1)
+            
+            blend_function = st.selectbox(
+                "Blend Function",
+                ["Union (OR)", "Intersection (AND)", "Weighted Average", 
+                 "Spatial Transition", "XOR (Exclusive)"],
+                help="How to combine the two TPMS structures"
+            )
+            
+        else:  # Graded Structures
+            st.subheader("🔧 Grading Parameters")
+            tpms_type = st.selectbox(
+                "TPMS Type",
+                ["Gyroid", "Schwarz P", "Schwarz D", "Neovius"]
+            )
+            grading_function = st.selectbox(
+                "Grading Function",
+                ["Radial (Center to Edge)", "Linear X", "Linear Y", "Linear Z", 
+                 "Sinusoidal X", "Spherical Shells", "Cubic Shells"],
+                help="How thickness/density varies spatially"
+            )
+            base_thickness = st.slider("Base Thickness", -1.0, 1.0, 0.0, 0.1)
+            grading_intensity = st.slider("Grading Intensity", 0.0, 2.0, 1.0, 0.1,
+                                        help="Strength of the grading effect")
+        
+        # Generate button
+        generate_btn = st.button("Generate Structure", type="primary")
+    
+    # Main content area
+    col1, col2 = st.columns([2, 1])
+    
+    with col1:
+        if generate_btn:
+            with st.spinner(f"Generating {feature_type.lower()}..."):
+                try:
+                    if feature_type == "Sheet-Based TPMS":
+                        vertices, faces, colors, name = create_sheet_based_tpms(
+                            tpms_type, resolution, domain_size, thickness
+                        ), None, None, tpms_type
+                        vertices, faces, normals, colors = create_sheet_based_tpms(
+                            tpms_type, resolution, domain_size, thickness
+                        )
+                        name = f"{tpms_type} Sheet Surface"
+                        
+                    elif feature_type == "Hybrid Structures":
+                        vertices, faces, colors, name = create_hybrid_tpms(
+                            tpms1_type, tpms2_type, blend_function, resolution,
+                            domain_size, thickness1, thickness2
+                        )
+                        
+                    else:  # Graded Structures
+                        vertices, faces, colors, grading_name = create_graded_tpms(
+                            tpms_type, grading_function, resolution, domain_size,
+                            base_thickness, grading_intensity
+                        )
+                        name = f"{tpms_type} with {grading_name} Grading"
+                    
+                    if vertices is not None:
+                        fig = plot_sheet_surface(vertices, faces, colors, name)
+                        if fig is not None:
+                            st.plotly_chart(fig, use_container_width=True)
+                            
+                            # Store results for analysis
+                            st.session_state['vertices'] = vertices
+                            st.session_state['faces'] = faces
+                            st.session_state['colors'] = colors
+                            st.session_state['structure_name'] = name
+                        else:
+                            st.error("Failed to create visualization")
+                    else:
+                        st.error("Failed to generate structure")
+                        
+                except Exception as e:
+                    st.error(f"Error: {str(e)}")
+                    st.info("Try reducing resolution or adjusting parameters")
+        else:
+            st.info("Configure parameters and click 'Generate Structure' to create advanced TPMS features")
+    
+    with col2:
+        st.subheader("📊 Structure Analysis")
+        
+        if 'vertices' in st.session_state:
+            vertices = st.session_state['vertices']
+            faces = st.session_state['faces']
+            colors = st.session_state['colors']
+            
+            # Basic metrics
+            st.metric("Vertices", f"{len(vertices):,}")
+            st.metric("Faces", f"{len(faces):,}")
+            
+            # Surface area estimation
+            if faces is not None and len(faces) > 0:
+                # Calculate triangle areas
+                v1 = vertices[faces[:, 1]] - vertices[faces[:, 0]]
+                v2 = vertices[faces[:, 2]] - vertices[faces[:, 0]]
+                areas = 0.5 * np.linalg.norm(np.cross(v1, v2), axis=1)
+                total_area = np.sum(areas)
+                st.metric("Surface Area", f"{total_area:.2f}")
+            
+            # Bounding box
+            if len(vertices) > 0:
+                bbox = np.ptp(vertices, axis=0)
+                st.metric("Bounding Box", f"{bbox[0]:.1f} × {bbox[1]:.1f} × {bbox[2]:.1f}")
+        
+        # Feature descriptions
+        st.subheader("Feature Info")
+        
+        if feature_type == "Sheet-Based TPMS":
+            st.markdown("""
+            **Sheet-Based TPMS** creates actual triangulated surfaces using the marching cubes algorithm:
+            -  True 3D surfaces (not just points)
+            -  Proper mesh topology
+            -  Exportable to CAD/FEA
+            -  Accurate surface area calculations
+            -  Normal vectors for analysis
+            """)
+            
+        elif feature_type == "Hybrid Structures":
+            st.markdown("""
+            **Hybrid Structures** combine multiple TPMS types:
+            - **Union**: Overlapping regions merge
+            - **Intersection**: Only common regions remain  
+            - **Weighted Average**: Smooth blending
+            - **Spatial Transition**: Location-based mixing
+            - **XOR**: Exclusive regions only
+            """)
+            
+        else:  # Graded Structures
+            st.markdown("""
+            **Graded Structures** vary properties spatially:
+            - **Radial**: Density changes from center outward
+            - **Linear**: Gradient along coordinate axes
+            - **Sinusoidal**: Periodic thickness variation
+            - **Shells**: Concentric density patterns
+            
+            Applications: Bone scaffolds, heat exchangers, impact absorption
+            """)
+
+if __name__ == "__main__":
+    main()
