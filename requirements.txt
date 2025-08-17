@@ -5,19 +5,3 @@ matplotlib      # Basic plotting
 plotly          # Interactive 3D visualization
 streamlit       # Web interface (optional)
 
-# Advanced Geometry & Meshing
-scikit-image    # Marching cubes, image processing
-pymeshlab       # Mesh processing and repair
-trimesh         # Mesh operations and analysis
-open3d          # 3D data processing
-vtk             # Visualization toolkit
-
-# Optimization & Analysis
-scipy.optimize  # Parameter optimization
-scikit-learn    # Machine learning for pattern recognition
-numba           # JIT compilation for performance
-
-# File I/O & CAD
-meshio          # Mesh file formats (STL, PLY, etc.)
-pythreejs       # Jupyter 3D visualization
-FreeCAD-python  # CAD operations (optional)
