@@ -1,0 +1,23 @@
+# Essential Libraries
+numpy >= 1.21.0           # Mathematical operations, arrays
+scipy >= 1.7.0            # Scientific computing, optimization
+matplotlib >= 3.5.0       # Basic plotting
+plotly >= 5.0.0           # Interactive 3D visualization
+streamlit >= 1.28.0       # Web interface (optional)
+
+# Advanced Geometry & Meshing
+scikit-image >= 0.19.0    # Marching cubes, image processing
+pymeshlab >= 2022.2       # Mesh processing and repair
+trimesh >= 3.15.0         # Mesh operations and analysis
+open3d >= 0.15.0          # 3D data processing
+vtk >= 9.1.0              # Visualization toolkit
+
+# Optimization & Analysis
+scipy.optimize            # Parameter optimization
+scikit-learn >= 1.1.0    # Machine learning for pattern recognition
+numba >= 0.56.0           # JIT compilation for performance
+
+# File I/O & CAD
+meshio >= 5.3.0           # Mesh file formats (STL, PLY, etc.)
+pythreejs                 # Jupyter 3D visualization
+FreeCAD-python           # CAD operations (optional)
